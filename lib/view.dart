@@ -1,26 +1,147 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:geocamera/controller.dart';
+import 'package:geocamera/permission.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:get/get.dart';
 
-// HomeScreen
 class CameraWithLocationScreen extends StatelessWidget {
+  final CameraLocationController controller = Get.put(CameraLocationController());
+  final PermissionController permissionController = Get.put(PermissionController());
 
-
- final CameraLocationController controller = Get.put(CameraLocationController());
   @override
   Widget build(BuildContext context) {
-    return GetBuilder<CameraLocationController>(
-      init: CameraLocationController(),
-      builder: (controller) {
-        return Scaffold(
-          body: Stack(
-            children: [
-              // Fullscreen Camera Preview
-              Positioned.fill(
+    final isPortrait = MediaQuery.of(context).orientation == Orientation.portrait;
+
+    return Scaffold(
+      body: Column(
+        children: [
+          if (isPortrait)
+            buildTopNavBar(context), // Top navigation bar for portrait
+          if (!isPortrait)
+            Expanded(
+              child: Row(
+                children: [
+                  buildLeftNavBar(context), // Left navigation bar for landscape
+                  Expanded(child: buildMainContent(context)),
+                  buildRightNavBar(context), // Right navigation bar for landscape
+                ],
+              ),
+            ),
+          if (isPortrait)
+            Expanded(child: buildMainContent(context)), // Main content for portrait
+          if (isPortrait)
+            buildBottomNavBar(context), // Bottom navigation bar for portrait
+        ],
+      ),
+    );
+  }
+
+  // Top Navigation Bar for Portrait Mode
+  Widget buildTopNavBar(BuildContext context) {
+    return Container(
+      color:  Colors.black,
+      height: 80,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          GestureDetector(
+            onTap: permissionController.switchCamera,
+            child: const Padding(
+              padding: EdgeInsets.all(20),
+              child: Icon(Icons.arrow_back_ios, color: Colors.white, size: 30),
+            ),
+          ),
+          GestureDetector(
+            onTap: permissionController.switchCamera,
+            child: const Padding(
+              padding: EdgeInsets.all(20),
+              child: Icon(Icons.cameraswitch, color: Colors.white, size: 30),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Left Navigation Bar for Landscape Mode
+  Widget buildLeftNavBar(BuildContext context) {
+    return Container(
+      color:  Colors.black,
+      width: 80,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          GestureDetector(
+            onTap: permissionController.switchCamera,
+            child: const Padding(
+              padding: EdgeInsets.all(20),
+              child: Icon(Icons.cameraswitch, color: Colors.white, size: 30),
+            ),
+          ),
+          GestureDetector(
+            onTap: permissionController.switchCamera,
+            child: const Padding(
+              padding: EdgeInsets.all(20),
+              child: Icon(Icons.arrow_back_ios, color: Colors.white, size: 30),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Right Navigation Bar for Landscape Mode
+  Widget buildRightNavBar(BuildContext context) {
+    return Container(
+      color:  Colors.black,
+      width: 80,
+      height: double.infinity,
+      child: Center(
+        child: GestureDetector(
+          onTap: () => controller.captureImage(context),
+          child: Container(
+            width: 60,
+            height: 60,
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Bottom Navigation Bar for Portrait Mode
+  Widget buildBottomNavBar(BuildContext context) {
+    return Container(
+      color:  Colors.black,
+      height: 80,
+      child: Center(
+        child: GestureDetector(
+          onTap: () => controller.captureImage(context),
+          child: Container(
+            width: 60,
+            height: 60,
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Main Content (Camera Preview and Location Details)
+  Widget buildMainContent(BuildContext context) {
+    return Stack(
+      children: [
+        // Fullscreen Camera Preview
+            Positioned.fill(
                 child: Obx(() {
-            final cameraController = controller.cameraController.value;
+            final cameraController = permissionController.cameraController.value;
             if (cameraController == null || !cameraController.value.isInitialized) {
               return Center(child: CircularProgressIndicator());
             }
@@ -28,22 +149,6 @@ class CameraWithLocationScreen extends StatelessWidget {
           }),
               ),
 
-              // Top-right camera switch button
-              Positioned(
-                top: 20,
-                right: 20,
-                child: Center(
-                  child: ElevatedButton.icon(
-                    onPressed: controller.switchCamera,
-                    icon: const Icon(Icons.switch_camera),
-                    label: const Text(""),
-                    style: ElevatedButton.styleFrom(
-                      shape: const CircleBorder(),
-                      padding: const EdgeInsets.all(10),
-                    ),
-                  ),
-                ),
-              ),
 
               // Bottom overlay with details and capture button
               Align(
@@ -64,30 +169,30 @@ class CameraWithLocationScreen extends StatelessWidget {
                           Expanded(
                             flex: 1,
                             child: Obx(() => 
-                              controller.currentLocation.value == null
+                              permissionController.currentLocation.value == null
                                 ? const Center(child: CircularProgressIndicator())
                                 : Container(
                                     height: 100,
                                     child: GoogleMap(
                                       initialCameraPosition: CameraPosition(
                                         target: LatLng(
-                                          controller.currentLocation.value!.latitude!,
-                                          controller.currentLocation.value!.longitude!,
+                                          permissionController.currentLocation.value!.latitude!,
+                                          permissionController.currentLocation.value!.longitude!,
                                         ),
-                                        zoom: 15,
+                                        zoom: 13,
                                       ),
                                       markers: {
                                         Marker(
                                           markerId: const MarkerId('current_location'),
                                           position: LatLng(
-                                            controller.currentLocation.value!.latitude!,
-                                            controller.currentLocation.value!.longitude!,
+                                            permissionController.currentLocation.value!.latitude!,
+                                            permissionController.currentLocation.value!.longitude!,
                                           ),
                                         )
                                       },
                                       zoomControlsEnabled: false,
                                       onMapCreated: (GoogleMapController mapController) {
-                                        controller.mapController.value = mapController;
+                                        permissionController.mapController.value = mapController;
                                       },
                                     ),
                                   ),
@@ -104,22 +209,22 @@ class CameraWithLocationScreen extends StatelessWidget {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Text(
-                                  'Address: ${controller.currentAddress.value}',
+                                  'Address: ${permissionController.currentAddress.value}',
                                   style: const TextStyle(
                                       color: Colors.white, fontSize: 14),
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                 ),
                                 Text(
-                                  'Lat: ${controller.currentLocation.value?.latitude?.toStringAsFixed(6) ?? "N/A"}',
+                                  'Lat: ${permissionController.currentLocation.value?.latitude?.toStringAsFixed(6) ?? "N/A"}',
                                   style: const TextStyle(color: Colors.white, fontSize: 12),
                                 ),
                                 Text(
-                                  'Lon: ${controller.currentLocation.value?.longitude?.toStringAsFixed(6) ?? "N/A"}',
+                                  'Lon: ${permissionController.currentLocation.value?.longitude?.toStringAsFixed(6) ?? "N/A"}',
                                   style: const TextStyle(color: Colors.white, fontSize: 12),
                                 ),
                                 Text(
-                                  'Date & Time: ${controller.currentDateTime.value}',
+                                  'Date & Time: ${permissionController.currentDateTime.value}',
                                   style: const TextStyle(
                                       color: Colors.white, fontSize: 12),
                                 ),
@@ -129,31 +234,11 @@ class CameraWithLocationScreen extends StatelessWidget {
                         ],
                       ),
                     ),
-
-                    // Capture button
-                    GestureDetector(
-                      onTap: () => controller.captureImage(context),
-                      child: Container(
-                        height: 70,
-                        width: 70,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.black,
-                            width: 2,
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                ),
-              ),
+              
             ],
           ),
-        );
-      },
+        ),
+      ],
     );
   }
 }
