@@ -36,23 +36,22 @@ class _DashboardState extends State<Dashboard> {
     context,
     MaterialPageRoute(builder: (context) => CameraWithLocationScreen()),
   );
-          },
-          child:Center(
-            child: Container(
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.black12),
-                borderRadius: BorderRadius.all( Radius.circular(25),) 
-              
-              ),
-                height: 150,
-                width: 150,
-                child: Icon(
-                  Icons.add_a_photo
-                )
-            ),
-          )
-        )
-      );
+  },
+    child:Center(
+       child: Container(
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.black12),
+             borderRadius: BorderRadius.all( Radius.circular(25),) 
+          ),
+            height: 150,
+            width: 150,
+            child: Icon(
+            Icons.add_a_photo
+            )
+         ),
+       )
+     )
+    );
   }
 }
 

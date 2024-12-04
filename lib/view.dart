@@ -1,6 +1,7 @@
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:geocamera/controller.dart';
+import 'package:geocamera/main.dart';
 import 'package:geocamera/permission.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:get/get.dart';
@@ -46,7 +47,11 @@ class CameraWithLocationScreen extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           GestureDetector(
-            onTap: permissionController.switchCamera,
+            onTap: (){Navigator.push(
+    context,
+    MaterialPageRoute(builder: (context) => Dashboard()),
+  );
+            },
             child: const Padding(
               padding: EdgeInsets.all(20),
               child: Icon(Icons.arrow_back_ios, color: Colors.white, size: 30),
@@ -80,7 +85,11 @@ class CameraWithLocationScreen extends StatelessWidget {
             ),
           ),
           GestureDetector(
-            onTap: permissionController.switchCamera,
+            onTap: (){Navigator.push(
+    context,
+    MaterialPageRoute(builder: (context) => Dashboard()),
+  );
+            },
             child: const Padding(
               padding: EdgeInsets.all(20),
               child: Icon(Icons.arrow_back_ios, color: Colors.white, size: 30),
@@ -139,15 +148,16 @@ class CameraWithLocationScreen extends StatelessWidget {
     return Stack(
       children: [
         // Fullscreen Camera Preview
-            Positioned.fill(
-                child: Obx(() {
-            final cameraController = permissionController.cameraController.value;
-            if (cameraController == null || !cameraController.value.isInitialized) {
-              return Center(child: CircularProgressIndicator());
-            }
-            return CameraPreview(cameraController);
-          }),
-              ),
+           Positioned.fill(
+  child: Obx(() {
+    final cameraController = permissionController.cameraController.value;
+    if (cameraController == null || !cameraController.value.isInitialized) {
+      return Center(child: CircularProgressIndicator());
+    }
+    return controller.buildCameraPreview(); // Use the buildCameraPreview method
+  }),
+),
+
 
 
               // Bottom overlay with details and capture button

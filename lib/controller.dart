@@ -10,11 +10,37 @@ import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:image/image.dart' as img;
 
-class CameraLocationController extends GetxController {
+
+// WidgetsBindingObserver for Orientation Handling
+class CameraLocationController extends GetxController with WidgetsBindingObserver {
+  Rx<Orientation> currentOrientation = Orientation.portrait.obs;
   final PermissionController permissionController = Get.put(PermissionController());
 
-  // Function to start the camera preview
-// Function to start the camera preview without mirroring
+  @override
+  void onInit() {
+    super.onInit();
+    WidgetsBinding.instance.addObserver(this); // Start listening for orientation changes
+    _updateOrientation(); // Set initial orientation
+  }
+
+  void _updateOrientation() {
+    final newOrientation = MediaQueryData.fromWindow(WidgetsBinding.instance.window).orientation;
+    currentOrientation.value = newOrientation;
+  }
+
+  @override
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+    _updateOrientation(); // Update orientation on metrics change
+  }
+
+  @override
+  void onClose() {
+    WidgetsBinding.instance.removeObserver(this); // Clean up observer
+    super.onClose();
+  }
+
+
 // Function to start the camera preview without any mirroring
 Widget buildCameraPreview() {
   if (permissionController.cameraController.value == null ||
@@ -22,84 +48,271 @@ Widget buildCameraPreview() {
     return Center(child: CircularProgressIndicator());
   }
 
-  // Ensure that the camera preview fills the screen properly
+  // Determine if the current camera is the front camera
+  final CameraLensDirection lensDirection =
+      permissionController.cameraController.value!.description.lensDirection;
+
+  // Front camera requires horizontal flip
+  bool isFrontCamera = lensDirection == CameraLensDirection.front;
+
   return Center(
     child: SizedBox.expand(
-      child: CameraPreview(permissionController.cameraController.value!),
+      child: Transform(
+        alignment: Alignment.center,
+        transform: isFrontCamera
+            ? Matrix4.diagonal3Values(-1.0, 1.0, 1.0) // Flip horizontally for front camera
+            : Matrix4.identity(), // No transformation for other cameras
+        child: CameraPreview(permissionController.cameraController.value!),
+      ),
     ),
   );
 }
 
+Future<void> captureImage(BuildContext context) async {
+  try {
+    if (permissionController.cameraController.value == null ||
+        !permissionController.cameraController.value!.value.isInitialized) {
+      _showErrorSnackbar(context, "Camera is not ready");
+      return;
+    }
 
-  // Function to capture an image with the camera
-  Future<void> captureImage(BuildContext context) async {
-    try {
-      // Validate camera is ready
-      if (permissionController.cameraController.value == null ||
-          !permissionController.cameraController.value!.value.isInitialized) {
-        _showErrorSnackbar(context, "Camera is not ready");
-        return;
-      }
+    final XFile? cameraImage = await permissionController.cameraController.value!.takePicture();
+    if (cameraImage == null) {
+      _showErrorSnackbar(context, "Failed to capture image");
+      return;
+    }
 
-      // Capture camera image
-      final XFile? cameraImage = await permissionController.cameraController.value!.takePicture();
-      if (cameraImage == null) {
-        _showErrorSnackbar(context, "Failed to capture image");
-        return;
-      }
 
-      // Capture map snapshot
-      Uint8List? mapSnapshot = await _captureMapSnapshot();
-      if (mapSnapshot == null) {
-        _showErrorSnackbar(context, "Failed to capture map snapshot");
-        return;
-      }
+    Uint8List cameraImageBytes = await cameraImage.readAsBytes();
+    img.Image? processedCameraImage = img.decodeImage(cameraImageBytes);
+    if (processedCameraImage == null) {
+      _showErrorSnackbar(context, "Image processing failed");
+      return;
+    }
 
-      // Get camera image bytes
-      Uint8List cameraImageBytes = await cameraImage.readAsBytes();
-      img.Image? processedCameraImage = img.decodeImage(cameraImageBytes);
-      img.Image? processedMapImage = img.decodeImage(mapSnapshot);
+    // Detect if the current camera is front-facing
+    final CameraLensDirection lensDirection =
+        permissionController.cameraController.value!.description.lensDirection;
 
-      if (processedCameraImage == null || processedMapImage == null) {
-        _showErrorSnackbar(context, "Image processing failed");
-        return;
-      }
+    if (lensDirection == CameraLensDirection.front) {
+      // Flip the image horizontally for the front camera
+      processedCameraImage = img.flipHorizontal(processedCameraImage);
+    }
 
-      // Resize map image to fit into a small container
-      processedMapImage = img.copyResize(processedMapImage, width: 300, height: 200);
+    // Adjust rotation for left rotation and landscape
+    switch (currentOrientation.value) {
+      case Orientation.landscape:
+        processedCameraImage = img.copyRotate(processedCameraImage, angle: -90); // Correct for landscape
+        break;
+      case Orientation.portrait:
+        // Already handled; no rotation needed
+        break;
+      default:
+        break;
+    }
 
-      // Overlay map and details
-      img.Image combinedImage = _addOverlay(
-        processedCameraImage,
-        processedMapImage,
-        context,
-      );
+    Uint8List? mapSnapshot = await _captureMapSnapshot();
+    if (mapSnapshot == null) {
+      _showErrorSnackbar(context, "Failed to capture map snapshot");
+      return;
+    }
 
-      // Save to external storage
-      final Directory? externalDir = await getExternalStorageDirectory();
-      if (externalDir == null) {
-        _showErrorSnackbar(context, "Could not access storage");
-        return;
-      }
+    img.Image? processedMapImage = img.decodeImage(mapSnapshot);
+    if (processedMapImage == null) {
+      _showErrorSnackbar(context, "Map image processing failed");
+      return;
+    }
 
-      final Directory geoImageDir = Directory('${externalDir.path}/GeoCamera');
-      await geoImageDir.create(recursive: true);
+    img.Image combinedImage = _addOverlay(
+      processedCameraImage,
+      processedMapImage,
+      context,
+    );
 
-      String timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
-      String filename = 'geocamera_$timestamp.jpg';
-      File savedImage = File('${geoImageDir.path}/$filename');
+    final Directory? externalDir = await getExternalStorageDirectory();
+    if (externalDir == null) {
+      _showErrorSnackbar(context, "Could not access storage");
+      return;
+    }
 
-      await savedImage.writeAsBytes(img.encodeJpg(combinedImage, quality: 85));
+    final Directory geoImageDir = Directory('${externalDir.path}/GeoCamera');
+    await geoImageDir.create(recursive: true);
 
-      _showSuccessSnackbar(context, 'Image saved: ${savedImage.path}');
-      Get.to(() => ImagePreviewScreen(imagePath: savedImage.path));
-    } catch (e) {
-      print("Image capture and save error: $e");
-      _showErrorSnackbar(context, "Capture failed: ${e.toString()}");
+    String timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+    String filename = 'geocamera_$timestamp.jpg';
+    File savedImage = File('${geoImageDir.path}/$filename');
+
+    await savedImage.writeAsBytes(img.encodeJpg(combinedImage, quality: 85));
+
+    _showSuccessSnackbar(context, 'Image saved: ${savedImage.path}');
+    Get.to(() => ImagePreviewScreen(imagePath: savedImage.path));
+  } catch (e) {
+    print("Image capture error: $e");
+    _showErrorSnackbar(context, "Capture failed: ${e.toString()}");
+  }
+}
+
+// Adjusted captureImage with fixed rotation logic for left rotation
+// Future<void> captureImage(BuildContext context) async {
+//   try {
+//     if (permissionController.cameraController.value == null ||
+//         !permissionController.cameraController.value!.value.isInitialized) {
+//       _showErrorSnackbar(context, "Camera is not ready");
+//       return;
+//     }
+
+//     final XFile? cameraImage = await permissionController.cameraController.value!.takePicture();
+//     if (cameraImage == null) {
+//       _showErrorSnackbar(context, "Failed to capture image");
+//       return;
+//     }
+
+//     final Orientation deviceOrientation = MediaQuery.of(context).orientation;
+
+//     Uint8List cameraImageBytes = await cameraImage.readAsBytes();
+//     img.Image? processedCameraImage = img.decodeImage(cameraImageBytes);
+//     if (processedCameraImage == null) {
+//       _showErrorSnackbar(context, "Image processing failed");
+//       return;
+//     }
+
+//     // Adjust rotation for left rotation and landscape
+//     switch (currentOrientation.value) {
+//       case Orientation.landscape:
+//         processedCameraImage = img.copyRotate(processedCameraImage, angle: -90); // Correct for landscape
+//         break;
+//       case Orientation.portrait:
+//         // Already handled; no rotation needed
+//         break;
+//       default:
+//         break;
+//     }
+
+//     Uint8List? mapSnapshot = await _captureMapSnapshot();
+//     if (mapSnapshot == null) {
+//       _showErrorSnackbar(context, "Failed to capture map snapshot");
+//       return;
+//     }
+
+//     img.Image? processedMapImage = img.decodeImage(mapSnapshot);
+//     if (processedMapImage == null) {
+//       _showErrorSnackbar(context, "Map image processing failed");
+//       return;
+//     }
+
+//     img.Image combinedImage = _addOverlay(
+//       processedCameraImage,
+//       processedMapImage,
+//       context,
+//     );
+
+//     final Directory? externalDir = await getExternalStorageDirectory();
+//     if (externalDir == null) {
+//       _showErrorSnackbar(context, "Could not access storage");
+//       return;
+//     }
+
+//     final Directory geoImageDir = Directory('${externalDir.path}/GeoCamera');
+//     await geoImageDir.create(recursive: true);
+
+//     String timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+//     String filename = 'geocamera_$timestamp.jpg';
+//     File savedImage = File('${geoImageDir.path}/$filename');
+
+//     await savedImage.writeAsBytes(img.encodeJpg(combinedImage, quality: 85));
+
+//     _showSuccessSnackbar(context, 'Image saved: ${savedImage.path}');
+//     Get.to(() => ImagePreviewScreen(imagePath: savedImage.path));
+//   } catch (e) {
+//     print("Image capture error: $e");
+//     _showErrorSnackbar(context, "Capture failed: ${e.toString()}");
+//   }
+// }
+
+// Updated _addOverlay Method
+img.Image _addOverlay(img.Image cameraImage, img.Image mapImage, BuildContext context) {
+  final MediaQueryData mediaQuery = MediaQuery.of(context);
+  final Orientation orientation = mediaQuery.orientation;
+
+  // Fixed dimensions for map and metadata
+  const int containerHeightPortrait = 300; // Fixed height for portrait
+  const int containerHeightLandscape = 150; // Fixed height for landscape
+  const double transparency = 0.6; // Transparency level for the background
+
+  img.Image overlayImage = img.Image(
+    width: cameraImage.width,
+    height: cameraImage.height,
+  );
+
+  for (int y = 0; y < cameraImage.height; y++) {
+    for (int x = 0; x < cameraImage.width; x++) {
+      overlayImage.setPixel(x, y, cameraImage.getPixel(x, y));
     }
   }
 
-  // Function to capture map snapshot (if needed for overlay)
+  int containerHeight, containerY, padding = 20;
+  img.Image resizedMap;
+
+  if (orientation == Orientation.portrait) {
+    containerHeight = containerHeightPortrait;
+    containerY = overlayImage.height - containerHeight;
+
+    resizedMap = img.copyResize(
+      mapImage,
+      width: 250, // Fixed width for map
+      height: containerHeight - 50, // Slight adjustment for padding
+    );
+  } else {
+    containerHeight = containerHeightLandscape;
+    containerY = overlayImage.height - containerHeight;
+
+    resizedMap = img.copyResize(
+      mapImage,
+      width: 200, // Fixed width for map in landscape
+      height: containerHeight - 30,
+    );
+  }
+
+  // Draw semi-transparent background
+  for (int y = containerY; y < overlayImage.height; y++) {
+    for (int x = 0; x < overlayImage.width; x++) {
+      overlayImage.setPixel(x, y, img.ColorRgba8(50, 50, 50, (transparency * 255).toInt()));
+    }
+  }
+
+  // Place resized map
+  for (int y = 0; y < resizedMap.height; y++) {
+    for (int x = 0; x < resizedMap.width; x++) {
+      overlayImage.setPixel(padding + x, containerY + padding + y, resizedMap.getPixel(x, y));
+    }
+  }
+
+  String details = '''
+Lat: ${permissionController.currentLocation.value?.latitude?.toStringAsFixed(6) ?? 'N/A'}
+Lon: ${permissionController.currentLocation.value?.longitude?.toStringAsFixed(6) ?? 'N/A'}
+Address: ${permissionController.currentAddress.value ?? 'Unavailable'}
+''';
+
+  int metadataX = resizedMap.width + (padding * 2);
+  int metadataY = containerY + padding;
+  List<String> detailLines = details.split('\n');
+  int lineHeight = 24;
+
+  for (int i = 0; i < detailLines.length; i++) {
+    img.drawString(
+      overlayImage,
+      detailLines[i],
+      font: img.arial24,
+      x: metadataX,
+      y: metadataY + (i * lineHeight),
+      color: img.ColorRgb8(255, 255, 255),
+    );
+  }
+
+  return overlayImage;
+}
+
+
   Future<Uint8List?> _captureMapSnapshot() async {
     try {
       if (permissionController.currentLocation.value == null) return null;
@@ -109,94 +322,6 @@ Widget buildCameraPreview() {
       print("Map snapshot error: $e");
       return null;
     }
-  }
-
-  // Function to overlay the map and camera image
-  img.Image _addOverlay(img.Image cameraImage, img.Image mapImage, BuildContext context) {
-    final MediaQueryData mediaQuery = MediaQuery.of(context);
-    final double screenWidth = mediaQuery.size.width;
-    final double screenHeight = mediaQuery.size.height;
-    final Orientation orientation = mediaQuery.orientation;
-
-    img.Image overlayImage = img.Image(
-      width: cameraImage.width,
-      height: cameraImage.height,
-    );
-
-    // Copy the camera image into the overlay
-    for (int y = 0; y < cameraImage.height; y++) {
-      for (int x = 0; x < cameraImage.width; x++) {
-        overlayImage.setPixel(x, y, cameraImage.getPixel(x, y));
-      }
-    }
-
-    // Calculate dimensions based on orientation
-    int containerHeight, containerY, padding, metadataX, metadataY;
-    img.Image resizedMap;
-
-    if (orientation == Orientation.portrait) {
-      // Portrait-specific layout
-      containerHeight = (screenHeight * 0.3).toInt();
-      containerY = overlayImage.height - containerHeight;
-      padding = 20;
-
-      // Resize map for portrait
-      resizedMap = img.copyResize(
-        mapImage,
-        width: (screenWidth * 0.4).toInt(),
-        height: (containerHeight * 0.8).toInt(),
-      );
-    } else {
-      // Landscape-specific layout
-      containerHeight = (screenHeight * 0.4).toInt();
-      containerY = overlayImage.height - containerHeight;
-      padding = 10;
-
-      // Resize map for landscape (wider)
-      resizedMap = img.copyResize(
-        mapImage,
-        width: (screenWidth * 0.3).toInt(),
-        height: (containerHeight * 0.9).toInt(),
-      );
-    }
-
-    // Draw semi-transparent background for the bottom container
-    for (int y = containerY; y < overlayImage.height; y++) {
-      for (int x = 0; x < overlayImage.width; x++) {
-        overlayImage.setPixel(x, y, img.ColorRgba8(50, 50, 50, 100));
-      }
-    }
-
-    // Place the resized map
-    for (int y = 0; y < resizedMap.height; y++) {
-      for (int x = 0; x < resizedMap.width; x++) {
-        overlayImage.setPixel(padding + x, containerY + padding + y, resizedMap.getPixel(x, y));
-      }
-    }
-
-    // Prepare metadata details
-    String details = '''
-Lat: ${permissionController.currentLocation.value?.latitude?.toStringAsFixed(6) ?? 'N/A'}
-Lon: ${permissionController.currentLocation.value?.longitude?.toStringAsFixed(6) ?? 'N/A'}
-Address: ${permissionController.currentAddress.value ?? 'Unavailable'}
-''';
-
-    // Adjust metadata positioning based on orientation
-    metadataX = resizedMap.width + (padding * 2);
-    metadataY = containerY + padding;
-
-    // Draw metadata with text wrapping
-    img.drawString(
-      overlayImage,
-      details,
-      font: img.arial24,
-      x: metadataX,
-      y: metadataY + ((containerHeight - padding) ~/ 4),
-      color: img.ColorRgb8(255, 255, 255),
-      wrap: true,
-    );
-
-    return overlayImage;
   }
 
   // Show error snackbar
