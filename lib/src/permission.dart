@@ -175,9 +175,10 @@ Future<void> _initializeCamera(CameraDescription camera) async {
   }
 
   @override
-  void onClose() {
-    cameraController.value?.dispose();
-    mapController.value?.dispose();
+  void dispose() {
+    super.dispose();
+    cameraController.value!.dispose();
+    mapController.value!.dispose();
     super.onClose();
   }
 

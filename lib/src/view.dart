@@ -1,10 +1,10 @@
-import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:geocamera/controller.dart';
-import 'package:geocamera/main.dart';
-import 'package:geocamera/permission.dart';
+import 'package:geocamera/src/controller.dart';
+import 'package:geocamera/src/permission.dart';
+import 'package:geocamera/src/dashboard.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:get/get.dart';
+
 
 class CameraWithLocationScreen extends StatelessWidget {
   final CameraLocationController controller = Get.put(CameraLocationController());
